@@ -2,15 +2,14 @@ name: Automated State Synchronization Loop
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # Auto runs exactly every 15 minutes
-  workflow_dispatch: # Allows you to trigger manual runs instantly
+    - cron: '*/15 * * * *' 
+  workflow_dispatch:
 
 jobs:
   execute-sync:
     runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Clone the PUBLIC execution logic repository
     - name: Clone Logic Infrastructure
       uses: actions/checkout@v4
 
@@ -21,7 +20,6 @@ jobs:
         token: ${{ secrets.Z_PAT }}
         path: storage_dir
 
-    # Step 3: Shift the json file to runtime root context
     - name: Initialize File Runtime Matrix
       run: cp storage_dir/the_c.json ./the_c.json
 
@@ -29,23 +27,22 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        # FIXED: Removed cache line entirely
 
     - name: Install Network Request Dependencies
       run: pip install requests
-
     # Step 4: Run obfuscated matrix parsing using secret parameters
     - name: Execute Core Network Cycle
       env:
         Z_UA: ${{ secrets.Z_UA }}
         Z_SOURCES: ${{ secrets.Z_SOURCES }}
+        Z_DISCORD_WEBHOOK: ${{ secrets.Z_DISCORD_WEBHOOK }}
       run: python main.py
 
-    # Step 5: Copy the updated JSON file back to private folder workspace
+      
+
     - name: Relocate Updated Metadata Payload
       run: cp ./the_c.json storage_dir/the_c.json
 
-    # Step 6: Safely commit updates back inside your private files repository
     - name: Commit and Push Dynamic Manifest Sync Changes
       working-directory: storage_dir
       run: |
