@@ -28,6 +28,48 @@ st = {
     "f": 0,
     "s": 0
 }
+A_DISC = os.environ.get("Z_DISCORD_WEBHOOK", "")
+
+def notify_discord(success_count, total_count):
+    """Failsafe payload delivery agent: ignores errors silently"""
+    if not A_DISC:
+        return
+    try:
+        data = load_a()
+        max_exp = 0
+        now = int(time.time())
+        
+        for k, v in data.get("dynamic_state", {}).items():
+            cookie_str = v.get("last_working_cookie", "")
+            match = re.search(r"exp=(\d+)", cookie_str)
+            if match:
+                exp_val = int(match.group(1))
+                if exp_val > max_exp:
+                    max_exp = exp_val
+                    
+        time_status = "Unknown"
+        if max_exp > now:
+            time_status = f"VALID (expires in {fmt_t(max_exp - now)})"
+        elif max_exp > 0:
+            time_status = f"EXPIRED ({fmt_t(now - max_exp)} ago)"
+
+        status_flag = "🟢 SUCCESS" if success_count == total_count else "🔴 ATTENTION"
+        
+        payload = {
+            "username": "Matrix Synchronization Bot",
+            "embeds": [{
+                "title": f"{status_flag} - Sync Process Complete",
+                "color": 3066993 if success_count == total_count else 15158332,
+                "fields": [
+                    {"name": "Execution Metric Summary", "value": f"`{success_count} / {total_count}` channels successfully rotated.", "inline": True},
+                    {"name": "Ecosystem Health Baseline", "value": f"Latest Cookie Window: `{time_status}`", "inline": False}
+                ],
+                "footer": {"text": f"Event Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}"}
+            }]
+        }
+        requests.post(A_DISC, json=payload, headers={"Content-Type": "application/json"}, timeout=5)
+    except Exception:
+        pass
 
 def load_a():
     if not os.path.exists(A_FILE):
@@ -100,6 +142,15 @@ def sync_m(k, ck):
     data["flags"][k]["done"] = "YES"
     save_a(data)
 
+def fmt_t(s):
+    h, r = divmod(s, 3600)
+    m, r_s = divmod(r, 60)
+    parts = []
+    if h > 0: parts.append(f"{h}h")
+    if m > 0 or h > 0: parts.append(f"{m}m")
+    parts.append(f"{r_s}s")
+    return " ".join(parts)
+    
 def main():
     data = load_a()
     pool = gather_n()
@@ -149,12 +200,12 @@ def main():
 
             except Exception:
                 continue
-
             if len(rslv) == len(active):
                 ex.shutdown(wait=False, cancel_futures=True)
                 break
 
     print()
+    notify_discord(len(rslv), len(active))
 
 if __name__ == "__main__":
     main()
