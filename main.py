@@ -61,8 +61,8 @@ def notify_discord(success_count, total_count):
                 "title": f"{status_flag} - Sync Process Complete",
                 "color": 3066993 if success_count == total_count else 15158332,
                 "fields": [
-                    {"name": "Execution Metric Summary", "value": f"`{success_count} / {total_count}` channels successfully rotated.", "inline": True},
-                    {"name": "Ecosystem Health Baseline", "value": f"Latest Cookie Window: `{time_status}`", "inline": False}
+                    {"name": "Execution Summary", "value": f"`{success_count} / {total_count}` successfully rotated.", "inline": True},
+                    {"name": "Ecosystem Baseline", "value": f"Latest Window: `{time_status}`", "inline": False}
                 ],
                 "footer": {"text": f"Event Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}"}
             }]
