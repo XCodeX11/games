@@ -14,7 +14,6 @@ jobs:
     - name: Clone Logic Infrastructure
       uses: actions/checkout@v4
 
-
     - name: Clone Secure Storage Manifest
       uses: actions/checkout@v4
       with:
@@ -30,7 +29,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip'
+        # FIXED: Removed cache line entirely
 
     - name: Install Network Request Dependencies
       run: pip install requests
