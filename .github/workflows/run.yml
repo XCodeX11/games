@@ -1,0 +1,61 @@
+name: Automated State Synchronization Loop
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # Auto runs exactly every 15 minutes
+  workflow_dispatch: # Allows you to trigger manual runs instantly
+
+jobs:
+  execute-sync:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Clone the PUBLIC execution logic repository
+    - name: Clone Logic Infrastructure
+      uses: actions/checkout@v4
+
+    # Step 2: Clone the PRIVATE repository holding channel_state.json
+    - name: Clone Secure Storage Manifest
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/files
+        token: ${{ secrets.Z_PAT }}
+        path: storage_dir
+
+    # Step 3: Shift the json file to runtime root context
+    - name: Initialize File Runtime Matrix
+      run: cp storage_dir/channel_state.json ./channel_state.json
+
+    - name: Initialize Environment Environment
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install Network Request Dependencies
+      run: pip install requests
+
+    # Step 4: Run obfuscated matrix parsing using secret parameters
+    - name: Execute Core Network Cycle
+      env:
+        Z_UA: ${{ secrets.Z_UA }}
+        Z_SOURCES: ${{ secrets.Z_SOURCES }}
+      run: python main.py
+
+    # Step 5: Copy the updated JSON file back to private folder workspace
+    - name: Relocate Updated Metadata Payload
+      run: cp ./the_c.json storage_dir/the_c.json
+
+    # Step 6: Safely commit updates back inside your private files repository
+    - name: Commit and Push Dynamic Manifest Sync Changes
+      working-directory: storage_dir
+      run: |
+        git config --global user.name "GitHub Action Runner"
+        git config --global user.email "actions@github.com"
+        git add channel_state.json
+        if ! git diff --cached --quiet; then
+          git commit -m "Automated Sync Cycle: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          git push origin main
+        else
+          echo "No changes detected inside data target mapping arrays. Skipping commit."
+        fi
