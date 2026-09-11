@@ -3,8 +3,8 @@ import time
 import json
 import random
 import os
-import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import asyncio
+import aiohttp
 from threading import Lock
 
 A_FILE = "the_c.json"
@@ -19,7 +19,6 @@ A_HD = {"User-Agent": A_UA}
 A_WK = 100  
 A_TM = 5
 
-p_lk = Lock()
 f_lk = Lock()
 
 st = {
@@ -30,8 +29,7 @@ st = {
 }
 A_DISC = os.environ.get("Z_DISCORD_WEBHOOK", "")
 
-def notify_discord(success_count, total_count):
-    """Failsafe payload delivery agent: ignores errors silently"""
+async def notify_discord(success_count, total_count):
     if not A_DISC:
         return
     try:
@@ -67,7 +65,9 @@ def notify_discord(success_count, total_count):
                 "footer": {"text": f"Event Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}"}
             }]
         }
-        requests.post(A_DISC, json=payload, headers={"Content-Type": "application/json"}, timeout=5)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(A_DISC, json=payload, headers={"Content-Type": "application/json"}, timeout=aiohttp.ClientTimeout(total=5)):
+                pass
     except Exception:
         pass
 
@@ -102,27 +102,27 @@ def build_x(k, data):
         
     return tgt, hd
 
-def gather_n():
+async def gather_n(session):
     res = []
     ptrn = re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}:[0-9]{2,5}\b')
     for src in A_SRCS:
         try:
-            r = requests.get(src, timeout=6)
-            if r.status_code == 200:
-                res.extend(ptrn.findall(r.text))
+            async with session.get(src, timeout=aiohttp.ClientTimeout(total=6)) as r:
+                if r.status == 200:
+                    text = await r.text()
+                    res.extend(ptrn.findall(text))
         except Exception:
             continue
     return list(dict.fromkeys(res))
 
-def exec_w(n, k, url, hd, rslv):
+async def exec_w(session, n, k, url, hd, rslv):
     if k in rslv:
         return {"status": "SKIPPED", "k": k}
 
-    px = {"http": f"http://{n}", "https": f"http://{n}"}
+    px = f"http://{n}"
     try:
-        with requests.Session() as s:
-            resp = s.get(url, headers=hd, proxies=px, timeout=A_TM)
-            if resp.status_code == 200:
+        async with session.get(url, headers=hd, proxy=px, timeout=aiohttp.ClientTimeout(total=A_TM)) as resp:
+            if resp.status == 200:
                 ck = resp.headers.get("Set-Cookie")
                 if ck:
                     return {"status": "SUCCESS", "k": k, "n": n, "ck": ck}
@@ -130,6 +130,10 @@ def exec_w(n, k, url, hd, rslv):
             return {"status": "BLOCKED", "k": k, "n": n}
     except Exception:
         return {"status": "FAILED", "k": k, "n": n}
+
+async def bounded_exec_w(session, sem, n, k, url, hd, rslv):
+    async with sem:
+        return await exec_w(session, n, k, url, hd, rslv)
 
 def sync_m(k, ck):
     data = load_a()
@@ -151,61 +155,57 @@ def fmt_t(s):
     parts.append(f"{r_s}s")
     return " ".join(parts)
     
-def main():
+async def main():
     data = load_a()
-    pool = gather_n()
+    async with aiohttp.ClientSession() as session:
+        pool = await gather_n(session)
 
-    if not pool:
-        return
+        if not pool:
+            return
 
-    active = {}
-    for k in data["initial_targets"].keys():
-        url, hd = build_x(k, data)
-        if url:
-            active[k] = {"url": url, "hd": hd}
+        active = {}
+        for k in data["initial_targets"].keys():
+            url, hd = build_x(k, data)
+            if url:
+                active[k] = {"url": url, "hd": hd}
 
-    rslv = set()
-    tasks = []
-    for k, info in active.items():
-        for n in pool:
-            tasks.append((n, k, info["url"], info["hd"]))
-            
-    random.shuffle(tasks)
-    total = len(tasks)
+        rslv = set()
+        tasks = []
+        sem = asyncio.Semaphore(A_WK)
 
-    with ThreadPoolExecutor(max_workers=A_WK) as ex:
-        futures = {
-            ex.submit(exec_w, t[0], t[1], t[2], t[3], rslv): t 
-            for t in tasks
-        }
+        for k, info in active.items():
+            for n in pool:
+                tasks.append(asyncio.create_task(bounded_exec_w(session, sem, n, k, info["url"], info["hd"], rslv)))
+                
+        random.shuffle(tasks)
+        total = len(tasks)
 
-        for f in as_completed(futures):
-            _, k, _, _ = futures[f]
-            if k in rslv:
-                continue
+        for coro in asyncio.as_completed(tasks):
+            if len(rslv) == len(active):
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                break
 
             try:
-                res = f.result()
+                res = await coro
+                st["c"] += 1
                 status = res["status"]
+                k = res["k"]
                 
-                with p_lk:
-                    st["c"] += 1
-                    if status == "SUCCESS":
-                        st["s"] += 1
-                        rslv.add(k)
-                        sync_m(k, res["ck"])
+                if status == "SUCCESS" and k not in rslv:
+                    st["s"] += 1
+                    rslv.add(k)
+                    sync_m(k, res["ck"])
 
-                    pct = (st["c"] / total) * 100
-                    print(f"[{pct:.1f}%] Matrix Processing Loop -> Status Sync: {len(rslv)}/{len(active)} | Op Count: {st['c']}".ljust(85), end="\r")
+                pct = (st["c"] / total) * 100 if total > 0 else 0
+                print(f"[{pct:.1f}%] Matrix Processing Loop -> Status Sync: {len(rslv)}/{len(active)} | Op Count: {st['c']}".ljust(85), end="\r")
 
             except Exception:
                 continue
-            if len(rslv) == len(active):
-                ex.shutdown(wait=False, cancel_futures=True)
-                break
 
     print()
-    notify_discord(len(rslv), len(active))
+    await notify_discord(len(rslv), len(active))
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
