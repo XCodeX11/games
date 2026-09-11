@@ -4,6 +4,10 @@ on:
   
   workflow_dispatch:
 
+concurrency:
+  group: sync-storage-repo-${{ github.ref }}
+  cancel-in-progress: false
+  
 jobs:
   execute-sync:
     runs-on: ubuntu-latest
