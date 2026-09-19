@@ -16,6 +16,27 @@ jobs:
     - name: Clone Logic Infrastructure
       uses: actions/checkout@v4
 
+    - name: Manual Check Auto
+      run: |
+        git config --global user.name "GitHub Action Runner"
+        git config --global user.email "actions@github.com"
+        
+        # Check days since the last commit in the logic repo
+        LAST_COMMIT_DATE=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+        CURRENT_DATE=$(date +%s)
+        DIFF_DAYS=$(( (CURRENT_DATE - LAST_COMMIT_DATE) / 86400 ))
+        
+        # If it's been 30+ days (or dummy.txt doesn't exist), update it
+        if [ "$DIFF_DAYS" -ge 30 ] || [ ! -f "dummy.txt" ]; then
+          echo "Refresh L Datetime: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> dummy.txt
+          git add dummy.txt
+          git commit -m "Refresh: Refresh L Datetime update"
+          git push origin main
+          echo "Successfully pushed refresh commit to logic repository."
+        else
+          echo "Last commit was $DIFF_DAYS days ago. Skipping refresh commit to avoid spam in repositoy."
+        fi
+
     - name: Clone Secure Storage Manifest
       uses: actions/checkout@v4
       with:
