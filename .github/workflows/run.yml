@@ -12,6 +12,9 @@ jobs:
   execute-sync:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
     - name: Clone Logic Infrastructure
       uses: actions/checkout@v4
